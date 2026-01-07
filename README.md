@@ -31,11 +31,12 @@ args = ["/path/to/x-search-mcp/dist/index.js"]
 XAI_API_KEY = "your-key-here"
 ```
 
-## Smoke test
+## Smoke test (optional)
 ```bash
 XAI_API_KEY=your-key-here npm run build
 XAI_API_KEY=your-key-here npm run smoke-test
 ```
+Note: this test requires network access and may fail in restricted environments.
 
 ## MCP Tool
 ### `x_search`
@@ -82,3 +83,4 @@ Searches X with optional filters.
 - `allowed_x_handles` and `excluded_x_handles` are mutually exclusive.
 - Date filters must be `YYYY-MM-DD` and `from_date` must be <= `to_date`.
 - Tool responses are returned as MCP `structuredContent` (with a text fallback for display).
+- Citations are normalized from xAI response annotations when available.
