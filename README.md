@@ -22,6 +22,21 @@ npm run build
 XAI_API_KEY=your-key-here node dist/index.js
 ```
 
+## Codex MCP config (example)
+```toml
+[mcp_servers.x-search]
+command = "node"
+args = ["/path/to/x-search-mcp/dist/index.js"]
+[mcp_servers.x-search.env]
+XAI_API_KEY = "your-key-here"
+```
+
+## Smoke test
+```bash
+XAI_API_KEY=your-key-here npm run build
+XAI_API_KEY=your-key-here npm run smoke-test
+```
+
 ## MCP Tool
 ### `x_search`
 Searches X with optional filters.
@@ -52,7 +67,8 @@ Searches X with optional filters.
       "end_index": 42,
       "title": "1"
     }
-  ]
+  ],
+  "raw_response": {}
 }
 ```
 
@@ -65,3 +81,4 @@ Searches X with optional filters.
 ## Notes
 - `allowed_x_handles` and `excluded_x_handles` are mutually exclusive.
 - Date filters must be `YYYY-MM-DD` and `from_date` must be <= `to_date`.
+- Tool responses are returned as MCP `structuredContent` (with a text fallback for display).

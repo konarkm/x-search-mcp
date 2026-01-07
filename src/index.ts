@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -24,7 +25,8 @@ type ResponseOutput = {
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_MODEL = "grok-4-1-fast";
 
-const XSearchInputBaseSchema = z.object({
+const XSearchInputSchema = z
+  .object({
     query: z.string().min(1).max(2000).describe("Search query for X"),
     allowed_x_handles: z
       .array(z.string().min(1))
@@ -53,9 +55,8 @@ const XSearchInputBaseSchema = z.object({
       .boolean()
       .optional()
       .describe("Include raw xAI response for debugging"),
-  });
-
-const XSearchInputSchema = XSearchInputBaseSchema.superRefine((data, ctx) => {
+  })
+  .superRefine((data, ctx) => {
     if (data.allowed_x_handles && data.excluded_x_handles) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -98,6 +99,20 @@ const XSearchInputSchema = XSearchInputBaseSchema.superRefine((data, ctx) => {
       }
     }
   });
+
+const XSearchOutputSchema = z.object({
+  answer: z.string(),
+  citations: z.array(z.string()),
+  inline_citations: z.array(
+    z.object({
+      url: z.string(),
+      start_index: z.number().nullable(),
+      end_index: z.number().nullable(),
+      title: z.string().nullable(),
+    })
+  ),
+  raw_response: z.unknown().optional(),
+});
 
 const RESPONSE_SCHEMA = {
   name: "x_search_answer",
@@ -191,125 +206,151 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-server.tool("x_search", XSearchInputBaseSchema.shape, async (args) => {
-  try {
-    const parsedArgs = XSearchInputSchema.parse(args);
-    const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) {
-      throw new Error("XAI_API_KEY is required");
-    }
+type XSearchInput = z.infer<typeof XSearchInputSchema>;
+type XSearchOutput = z.infer<typeof XSearchOutputSchema>;
 
-    const baseUrl = process.env.XAI_BASE_URL ?? "https://api.x.ai/v1";
-    const model = process.env.XAI_MODEL ?? DEFAULT_MODEL;
-    const timeoutMs = Number.parseInt(process.env.XAI_TIMEOUT ?? "30000", 10);
-
-    const toolConfig: Record<string, unknown> = {
-      type: "x_search",
-    };
-
-    if (parsedArgs.allowed_x_handles) {
-      toolConfig.allowed_x_handles = parsedArgs.allowed_x_handles;
-    }
-    if (parsedArgs.excluded_x_handles) {
-      toolConfig.excluded_x_handles = parsedArgs.excluded_x_handles;
-    }
-    if (parsedArgs.from_date) {
-      toolConfig.from_date = parsedArgs.from_date;
-    }
-    if (parsedArgs.to_date) {
-      toolConfig.to_date = parsedArgs.to_date;
-    }
-    if (typeof parsedArgs.enable_image_understanding === "boolean") {
-      toolConfig.enable_image_understanding = parsedArgs.enable_image_understanding;
-    }
-    if (typeof parsedArgs.enable_video_understanding === "boolean") {
-      toolConfig.enable_video_understanding = parsedArgs.enable_video_understanding;
-    }
-
-    const body = {
-      model,
-      input: [
-        {
-          role: "system",
-          content:
-            "You answer questions using X search. Return JSON that matches the provided schema. Use citations when possible.",
-        },
-        {
-          role: "user",
-          content: parsedArgs.query,
-        },
-      ],
-      tools: [toolConfig],
-      text: {
-        format: {
-          type: "json_schema",
-          schema: RESPONSE_SCHEMA,
-        },
-      },
-    };
-
-    const response = await fetchJson(`${baseUrl}/responses`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-    }, timeoutMs);
-
-    const content = extractMessage(response.output as ResponseOutput[]);
-    const rawText = content?.text ?? "";
-
-    let parsed: { answer?: string; citations?: unknown } = { answer: rawText };
-    if (rawText) {
-      try {
-        const parsedJson = JSON.parse(rawText);
-        if (parsedJson && typeof parsedJson === "object") {
-          parsed = parsedJson;
-        }
-      } catch {
-        // Keep raw text fallback
+server.registerTool(
+  "x_search",
+  {
+    title: "X Search",
+    description:
+      "Search X posts using xAI's Responses API x_search tool. Returns a normalized answer and citations.",
+    inputSchema: XSearchInputSchema,
+    outputSchema: XSearchOutputSchema,
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  async (args) => {
+    try {
+      const parsedArgs = args as XSearchInput;
+      const apiKey = process.env.XAI_API_KEY;
+      if (!apiKey) {
+        throw new Error("XAI_API_KEY is required");
       }
+
+      const baseUrl = process.env.XAI_BASE_URL ?? "https://api.x.ai/v1";
+      const model = process.env.XAI_MODEL ?? DEFAULT_MODEL;
+      const timeoutMs = Number.parseInt(process.env.XAI_TIMEOUT ?? "30000", 10);
+
+      const toolConfig: Record<string, unknown> = {
+        type: "x_search",
+      };
+
+      if (parsedArgs.allowed_x_handles) {
+        toolConfig.allowed_x_handles = parsedArgs.allowed_x_handles;
+      }
+      if (parsedArgs.excluded_x_handles) {
+        toolConfig.excluded_x_handles = parsedArgs.excluded_x_handles;
+      }
+      if (parsedArgs.from_date) {
+        toolConfig.from_date = parsedArgs.from_date;
+      }
+      if (parsedArgs.to_date) {
+        toolConfig.to_date = parsedArgs.to_date;
+      }
+      if (typeof parsedArgs.enable_image_understanding === "boolean") {
+        toolConfig.enable_image_understanding = parsedArgs.enable_image_understanding;
+      }
+      if (typeof parsedArgs.enable_video_understanding === "boolean") {
+        toolConfig.enable_video_understanding = parsedArgs.enable_video_understanding;
+      }
+
+      const body = {
+        model,
+        input: [
+          {
+            role: "system",
+            content:
+              "You answer questions using X search. Return JSON that matches the provided schema. Use citations when possible.",
+          },
+          {
+            role: "user",
+            content: parsedArgs.query,
+          },
+        ],
+        tools: [toolConfig],
+        text: {
+          format: {
+            type: "json_schema",
+            schema: RESPONSE_SCHEMA,
+          },
+        },
+      };
+
+      const response = await fetchJson(
+        `${baseUrl}/responses`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(body),
+        },
+        timeoutMs
+      );
+
+      const content = extractMessage(response.output as ResponseOutput[]);
+      const rawText = content?.text ?? "";
+
+      let parsed: { answer?: string; citations?: unknown } = { answer: rawText };
+      if (rawText) {
+        try {
+          const parsedJson = JSON.parse(rawText);
+          if (parsedJson && typeof parsedJson === "object") {
+            parsed = parsedJson;
+          }
+        } catch {
+          // Keep raw text fallback
+        }
+      }
+
+      const normalizedCitations = normalizeCitations(content?.annotations, parsed.citations);
+
+      const normalizedResponse: XSearchOutput = {
+        answer:
+          typeof parsed.answer === "string" && parsed.answer.trim().length > 0
+            ? parsed.answer
+            : rawText,
+        citations: normalizedCitations.citations,
+        inline_citations: normalizedCitations.inline_citations,
+        ...(parsedArgs.include_raw_response ? { raw_response: response } : {}),
+      };
+
+      return {
+        structuredContent: normalizedResponse,
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(normalizedResponse, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error("x_search failed", message);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                error: message,
+                status: "failed",
+              },
+              null,
+              2
+            ),
+          },
+        ],
+        isError: true,
+      };
     }
-
-    const normalizedCitations = normalizeCitations(content?.annotations, parsed.citations);
-
-    const normalizedResponse = {
-      answer: typeof parsed.answer === "string" && parsed.answer.trim().length > 0 ? parsed.answer : rawText,
-      citations: normalizedCitations.citations,
-      inline_citations: normalizedCitations.inline_citations,
-      ...(parsedArgs.include_raw_response ? { raw_response: response } : {}),
-    };
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(normalizedResponse, null, 2),
-        },
-      ],
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("x_search failed", message);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            {
-              error: message,
-              status: "failed",
-            },
-            null,
-            2
-          ),
-        },
-      ],
-      isError: true,
-    };
   }
-});
+);
 
 async function main() {
   const transport = new StdioServerTransport();
