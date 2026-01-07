@@ -25,8 +25,7 @@ type ResponseOutput = {
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_MODEL = "grok-4-1-fast";
 
-const XSearchInputSchema = z
-  .object({
+const XSearchInputBaseSchema = z.object({
     query: z.string().min(1).max(2000).describe("Search query for X"),
     allowed_x_handles: z
       .array(z.string().min(1))
@@ -55,8 +54,9 @@ const XSearchInputSchema = z
       .boolean()
       .optional()
       .describe("Include raw xAI response for debugging"),
-  })
-  .superRefine((data, ctx) => {
+  });
+
+const XSearchInputSchema = XSearchInputBaseSchema.superRefine((data, ctx) => {
     if (data.allowed_x_handles && data.excluded_x_handles) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -215,17 +215,17 @@ server.registerTool(
     title: "X Search",
     description:
       "Search X posts using xAI's Responses API x_search tool. Returns a normalized answer and citations.",
-    inputSchema: XSearchInputSchema,
+    inputSchema: XSearchInputBaseSchema,
     outputSchema: XSearchOutputSchema,
     annotations: {
       readOnlyHint: true,
-      idempotentHint: true,
+      idempotentHint: false,
       openWorldHint: true,
     },
   },
   async (args) => {
     try {
-      const parsedArgs = args as XSearchInput;
+      const parsedArgs = XSearchInputSchema.parse(args) as XSearchInput;
       const apiKey = process.env.XAI_API_KEY;
       if (!apiKey) {
         throw new Error("XAI_API_KEY is required");
