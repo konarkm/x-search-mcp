@@ -11,24 +11,26 @@ Minimal MCP server for xAI X search using the Responses API and structured outpu
 - Node.js >= 18
 - `XAI_API_KEY` environment variable
 
-## Install
+## MCP client config
+Add the following config to your MCP client:
+```json
+{
+  "mcpServers": {
+    "x-search": {
+      "command": "npx",
+      "args": ["-y", "x-search-mcp"],
+      "env": {
+        "XAI_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+## Local development
 ```bash
 npm install
 npm run build
-```
-
-## Run (stdio)
-```bash
-XAI_API_KEY=your-key-here node dist/index.js
-```
-
-## Codex MCP config (example)
-```toml
-[mcp_servers.x-search]
-command = "node"
-args = ["/path/to/x-search-mcp/dist/index.js"]
-[mcp_servers.x-search.env]
-XAI_API_KEY = "your-key-here"
 ```
 
 ## Smoke test (optional)
